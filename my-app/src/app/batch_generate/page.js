@@ -12,45 +12,27 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Progress } from "@/components/ui/progress";
 import {
   Loader2,
   AlertCircle,
   PlayCircle,
-  DollarSign,
   Calculator,
   TrendingUp,
   TrendingDown,
+  ArrowRight,
 } from "lucide-react";
 
-export default function BatchTrackingVerification() {
-  const [trackingNumbers, setTrackingNumbers] = useState({
-    1: "",
-    2: "",
-    3: "",
-    4: "",
-    5: "",
-  });
+export default function BatchRangeTrackingVerification() {
+  const [rangeStart, setRangeStart] = useState("");
+  const [rangeEnd, setRangeEnd] = useState("");
   const [processing, setProcessing] = useState(false);
-  const [results, setResults] = useState({});
+  const [results, setResults] = useState([]);
   const [error, setError] = useState("");
-
-  const handleTrackingNumberChange = (index, value) => {
-    setTrackingNumbers((prev) => ({
-      ...prev,
-      [index]: value,
-    }));
-  };
+  const [progress, setProgress] = useState(0);
+  const [currentlyProcessing, setCurrentlyProcessing] = useState("");
 
   const processTrackingNumber = async (trackingNumber) => {
-    if (!trackingNumber.trim()) {
-      return {
-        trackingNumber,
-        status: "empty",
-        totalAmount: 0,
-        realApprovedBenefit: 0,
-      };
-    }
-
     try {
       // First API call - verification
       const verifyResponse = await fetch(
@@ -122,37 +104,53 @@ export default function BatchTrackingVerification() {
     }
   };
 
-  const handleProcessAll = async () => {
+  const handleProcessRange = async () => {
     setError("");
-    setResults({});
-    setProcessing(true);
+    setResults([]);
+    setProgress(0);
+    setCurrentlyProcessing("");
 
-    const trackingNumbersList = Object.values(trackingNumbers).filter((tn) =>
-      tn.trim()
-    );
+    const start = parseInt(rangeStart);
+    const end = parseInt(rangeEnd);
 
-    if (trackingNumbersList.length === 0) {
-      setError("Please enter at least one tracking number");
-      setProcessing(false);
+    if (isNaN(start) || isNaN(end)) {
+      setError("Please enter valid numeric values for start and end");
       return;
     }
 
+    if (start > end) {
+      setError("Start value must be less than or equal to end value");
+      return;
+    }
+
+    const totalCount = end - start + 1;
+    if (totalCount > 100) {
+      setError("Please limit the range to 100 tracking numbers at a time");
+      return;
+    }
+
+    setProcessing(true);
+
     try {
-      // Process all tracking numbers
-      const processedResults = {};
+      const processedResults = [];
 
-      for (let i = 1; i <= 5; i++) {
-        if (trackingNumbers[i].trim()) {
-          const result = await processTrackingNumber(trackingNumbers[i]);
-          processedResults[i] = result;
-        }
+      for (let i = start; i <= end; i++) {
+        const trackingNumber = i.toString();
+        setCurrentlyProcessing(trackingNumber);
+
+        const result = await processTrackingNumber(trackingNumber);
+        processedResults.push(result);
+
+        const progressPercentage = ((i - start + 1) / totalCount) * 100;
+        setProgress(progressPercentage);
+
+        setResults([...processedResults]);
       }
-
-      setResults(processedResults);
     } catch (err) {
       setError("An unexpected error occurred while processing");
     } finally {
       setProcessing(false);
+      setCurrentlyProcessing("");
     }
   };
 
@@ -166,7 +164,7 @@ export default function BatchTrackingVerification() {
   };
 
   const calculateOverallSMAPE = () => {
-    const approvedResults = Object.values(results).filter(
+    const approvedResults = results.filter(
       (r) => r.status === "approved" && r.realApprovedBenefit > 0
     );
 
@@ -190,7 +188,6 @@ export default function BatchTrackingVerification() {
       approved: { color: "bg-green-100 text-green-800", label: "Approved" },
       declined: { color: "bg-red-100 text-red-800", label: "Declined" },
       error: { color: "bg-yellow-100 text-yellow-800", label: "Error" },
-      empty: { color: "bg-gray-100 text-gray-800", label: "Empty" },
     };
 
     const config = statusConfig[status] || statusConfig.error;
@@ -205,23 +202,31 @@ export default function BatchTrackingVerification() {
   };
 
   const getTotalSum = () => {
-    return Object.values(results).reduce((sum, result) => {
+    return results.reduce((sum, result) => {
       return sum + (result.totalAmount || 0);
     }, 0);
   };
 
   const getRealTotalSum = () => {
-    return Object.values(results).reduce((sum, result) => {
+    return results.reduce((sum, result) => {
       return sum + (result.realApprovedBenefit || 0);
     }, 0);
   };
 
   const getProcessedCount = () => {
-    return Object.values(results).filter((r) => r.status !== "empty").length;
+    return results.length;
   };
 
   const getApprovedCount = () => {
-    return Object.values(results).filter((r) => r.status === "approved").length;
+    return results.filter((r) => r.status === "approved").length;
+  };
+
+  const getDeclinedCount = () => {
+    return results.filter((r) => r.status === "declined").length;
+  };
+
+  const getErrorCount = () => {
+    return results.filter((r) => r.status === "error").length;
   };
 
   const renderAccuracyAnalysis = () => {
@@ -303,7 +308,7 @@ export default function BatchTrackingVerification() {
               <p className="text-xs text-gray-600">
                 <span className="font-medium">
                   SMAPE (Symmetric Mean Absolute Percentage Error)
-                </span>
+                </span>{" "}
                 measures prediction accuracy across all approved claims. Lower
                 values indicate better accuracy:
               </p>
@@ -330,41 +335,49 @@ export default function BatchTrackingVerification() {
 
   return (
     <div className="min-h-screen bg-gray-100 py-8 px-4">
-      <div className="max-w-4xl mx-auto">
+      <div className="max-w-6xl mx-auto">
         <Card>
           <CardHeader>
-            <CardTitle>Batch Tracking Number Processing</CardTitle>
+            <CardTitle>Batch Range Tracking Number Processing</CardTitle>
             <CardDescription>
-              Enter up to 5 tracking numbers to process verification and claim
-              calculations
+              Enter a range of tracking numbers to process verification and
+              claim calculations (max 100 at a time)
             </CardDescription>
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
-              {/* Input Fields */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {[1, 2, 3, 4, 5].map((index) => (
-                  <div key={index} className="space-y-2">
-                    <Label htmlFor={`tracking-${index}`}>
-                      Tracking Number {index}
-                    </Label>
-                    <Input
-                      id={`tracking-${index}`}
-                      type="text"
-                      placeholder={`Enter tracking number ${index}`}
-                      value={trackingNumbers[index]}
-                      onChange={(e) =>
-                        handleTrackingNumberChange(index, e.target.value)
-                      }
-                      disabled={processing}
-                    />
-                  </div>
-                ))}
+              {/* Range Input Fields */}
+              <div className="flex items-end gap-4">
+                <div className="flex-1 space-y-2">
+                  <Label htmlFor="range-start">Start Number</Label>
+                  <Input
+                    id="range-start"
+                    type="number"
+                    placeholder="e.g., 850"
+                    value={rangeStart}
+                    onChange={(e) => setRangeStart(e.target.value)}
+                    disabled={processing}
+                  />
+                </div>
+                <div className="flex items-center justify-center pb-2">
+                  <ArrowRight className="h-5 w-5 text-gray-400" />
+                </div>
+                <div className="flex-1 space-y-2">
+                  <Label htmlFor="range-end">End Number</Label>
+                  <Input
+                    id="range-end"
+                    type="number"
+                    placeholder="e.g., 880"
+                    value={rangeEnd}
+                    onChange={(e) => setRangeEnd(e.target.value)}
+                    disabled={processing}
+                  />
+                </div>
               </div>
 
               {/* Process Button */}
               <Button
-                onClick={handleProcessAll}
+                onClick={handleProcessRange}
                 disabled={processing}
                 className="w-full"
                 size="lg"
@@ -377,10 +390,21 @@ export default function BatchTrackingVerification() {
                 ) : (
                   <>
                     <PlayCircle className="mr-2 h-4 w-4" />
-                    Process All Tracking Numbers
+                    Process Tracking Number Range
                   </>
                 )}
               </Button>
+
+              {/* Progress Bar */}
+              {processing && (
+                <div className="space-y-2">
+                  <div className="flex justify-between text-sm text-gray-600">
+                    <span>Processing: {currentlyProcessing}</span>
+                    <span>{Math.round(progress)}%</span>
+                  </div>
+                  <Progress value={progress} className="h-2" />
+                </div>
+              )}
 
               {/* Error Alert */}
               {error && (
@@ -390,20 +414,20 @@ export default function BatchTrackingVerification() {
                 </Alert>
               )}
 
-              {/* Results Table */}
-              {Object.keys(results).length > 0 && (
+              {/* Results Section */}
+              {results.length > 0 && (
                 <div className="mt-6 space-y-4">
                   <h3 className="font-semibold text-lg">Processing Results</h3>
 
                   {/* Summary Stats */}
-                  <div className="grid grid-cols-3 gap-4 mb-4">
+                  <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-4">
                     <Card>
                       <CardContent className="pt-6">
                         <div className="text-center">
                           <div className="text-2xl font-bold text-blue-600">
                             {getProcessedCount()}
                           </div>
-                          <div className="text-sm text-gray-600">Processed</div>
+                          <div className="text-sm text-gray-600">Total</div>
                         </div>
                       </CardContent>
                     </Card>
@@ -417,10 +441,30 @@ export default function BatchTrackingVerification() {
                         </div>
                       </CardContent>
                     </Card>
+                    <Card>
+                      <CardContent className="pt-6">
+                        <div className="text-center">
+                          <div className="text-2xl font-bold text-red-600">
+                            {getDeclinedCount()}
+                          </div>
+                          <div className="text-sm text-gray-600">Declined</div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                    <Card>
+                      <CardContent className="pt-6">
+                        <div className="text-center">
+                          <div className="text-2xl font-bold text-yellow-600">
+                            {getErrorCount()}
+                          </div>
+                          <div className="text-sm text-gray-600">Errors</div>
+                        </div>
+                      </CardContent>
+                    </Card>
                     <Card className="border-green-200 bg-green-50">
                       <CardContent className="pt-6">
                         <div className="text-center">
-                          <div className="text-2xl font-bold text-green-700">
+                          <div className="text-xl font-bold text-green-700">
                             ${getTotalSum().toFixed(2)}
                           </div>
                           <div className="text-sm text-gray-600">
@@ -432,11 +476,10 @@ export default function BatchTrackingVerification() {
                   </div>
 
                   {/* Results Table */}
-                  <div className="overflow-x-auto">
+                  <div className="overflow-x-auto max-h-96 overflow-y-auto">
                     <table className="w-full border-collapse">
-                      <thead>
+                      <thead className="sticky top-0 bg-white shadow-sm">
                         <tr className="border-b">
-                          <th className="text-left p-3">#</th>
                           <th className="text-left p-3">Tracking Number</th>
                           <th className="text-left p-3">Status</th>
                           <th className="text-left p-3">First Month Paid</th>
@@ -447,10 +490,7 @@ export default function BatchTrackingVerification() {
                         </tr>
                       </thead>
                       <tbody>
-                        {[1, 2, 3, 4, 5].map((index) => {
-                          const result = results[index];
-                          if (!result || result.status === "empty") return null;
-
+                        {results.map((result, index) => {
                           const smape =
                             result.status === "approved" &&
                             result.realApprovedBenefit > 0
@@ -465,7 +505,6 @@ export default function BatchTrackingVerification() {
                               key={index}
                               className="border-b hover:bg-gray-50"
                             >
-                              <td className="p-3">{index}</td>
                               <td className="p-3 font-mono text-sm">
                                 {result.trackingNumber}
                               </td>
@@ -523,19 +562,6 @@ export default function BatchTrackingVerification() {
                       </tbody>
                     </table>
                   </div>
-
-                  {/* Error Details */}
-                  {Object.entries(results).some(
-                    ([_, r]) => r.status === "error"
-                  ) && (
-                    <Alert variant="warning" className="mt-4">
-                      <AlertCircle className="h-4 w-4" />
-                      <AlertDescription>
-                        Some tracking numbers encountered errors during
-                        processing.
-                      </AlertDescription>
-                    </Alert>
-                  )}
 
                   {/* Accuracy Analysis */}
                   {renderAccuracyAnalysis()}
